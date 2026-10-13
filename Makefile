@@ -284,7 +284,11 @@ frontend/menu.o frontend/plugin_lib.o: CFLAGS += -DBUILTIN_GPU_NEON
  endif
 endif
 ifeq "$(BUILTIN_GPU)" "vita_ctr"
-CFLAGS += -DGPU_VITA_CTR -DCTR_NATIVE -Iplugins/gpu_vita_ctr/compat -I../ctr-native/include
+# Allow another CTR checkout without editing the build rules.
+CTR_NATIVE_DIR ?= ../Crash-Team-Racing-High-Octane
+# Resolve PCSX packed-vertex headers before SDK or CTR alternatives.
+CFLAGS := -Iplugins/gpu_vita_ctr/compat -I$(CTR_NATIVE_DIR)/include $(CFLAGS)
+CFLAGS += -DGPU_VITA_CTR -DCTR_NATIVE -Iplugins/gpu_vita_ctr/compat
 OBJS += plugins/gpu_vita_ctr/gpulib_if.o \
         plugins/gpu_vita_ctr/native_gpu.o \
         plugins/gpu_vita_ctr/native_renderer.o

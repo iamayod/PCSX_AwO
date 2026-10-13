@@ -333,7 +333,8 @@ else ifeq ($(platform), vita)
 	CFLAGS += -fno-asynchronous-unwind-tables -ftree-vectorize
 	#CFLAGS += -funroll-loops # ~280K bloat
 	CFLAGS += -fno-optimize-sibling-calls # broken arm->thumb tailcalls?
-	CFLAGS += -I$(VITAGL_DIR)/source -I$(VITASDK)/include -Ifrontend/vita
+	# Expose libchdr headers included without the libchdr/ prefix on Vita.
+	CFLAGS += -I$(VITAGL_DIR)/source -I$(VITASDK)/include -Ifrontend/vita -Ideps/libchdr/include/libchdr
 	CFLAGS += -DNO_DYLIB
 	ASFLAGS += -mcpu=cortex-a9 -mtune=cortex-a9 -mfpu=neon
 
