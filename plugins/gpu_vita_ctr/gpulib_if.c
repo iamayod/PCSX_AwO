@@ -39,6 +39,8 @@ extern void neon_renderer_set_config(const struct rearmed_cbs *cbs);
 extern void neon_renderer_notify_screen_change(const struct psx_gpu_screen *screen);
 
 static int s_neon_selected;
+/* Mirror renderer messages to an append-only file for on-device diagnosis. */
+static FILE *s_renderer_log;
 static int s_game_renderer = -1;
 int VitaGpu_UsingNeon(void) { return s_neon_selected; }
 
@@ -50,6 +52,7 @@ int g_dbg_polygonSelected = -1;
 
 static int s_context_ready;
 static int s_frame_started;
+static unsigned s_present_debug_count;
 static uint16_t *s_guest_vram;
 
 typedef struct VitaCtrRgb24UploadRegion {
@@ -85,26 +88,53 @@ extern void NativeRenderer_FinishPostProcessingFrame(void);
 
 void Platform_Log(const char *fmt, ...)
 {
-    va_list ap;
-    va_start(ap, fmt);
-    vfprintf(stdout, fmt, ap);
-    va_end(ap);
+	va_list ap;
+	va_start(ap, fmt);
+	vfprintf(stdout, fmt, ap);
+	va_end(ap);
+	if (!s_renderer_log)
+		s_renderer_log = fopen(PCSX_AWO_APP_ROOT "/renderer.log", "ab");
+	if (s_renderer_log)
+	{
+		va_start(ap, fmt);
+		vfprintf(s_renderer_log, fmt, ap);
+		va_end(ap);
+		fflush(s_renderer_log);
+	}
 }
 
 void Platform_LogError(const char *fmt, ...)
 {
-    va_list ap;
-    va_start(ap, fmt);
-    vfprintf(stderr, fmt, ap);
-    va_end(ap);
+	va_list ap;
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
+	if (!s_renderer_log)
+		s_renderer_log = fopen(PCSX_AWO_APP_ROOT "/renderer.log", "ab");
+	if (s_renderer_log)
+	{
+		va_start(ap, fmt);
+		vfprintf(s_renderer_log, fmt, ap);
+		va_end(ap);
+		fflush(s_renderer_log);
+	}
 }
 
 void Platform_LogWarn(const char *fmt, ...)
 {
-    va_list ap;
-    va_start(ap, fmt);
-    vfprintf(stderr, fmt, ap);
-    va_end(ap);
+	va_list ap;
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
+	if (!s_renderer_log)
+		s_renderer_log = fopen(PCSX_AWO_APP_ROOT "/renderer.log", "ab");
+	if (s_renderer_log)
+	{
+		va_start(ap, fmt);
+		vfprintf(s_renderer_log, fmt, ap);
+		va_end(ap);
+		fflush(s_renderer_log);
+	}
 }
 
 void Platform_LogFlush(void)
@@ -152,10 +182,20 @@ int Platform_BeginScene(void)
 
 void Platform_EndScene(void)
 {
+    /* Trace initial frames, then sample periodically through frame 3600. */
+    static unsigned diagnostic_frame;
+    const unsigned frame = ++diagnostic_frame;
+    const int trace = frame <= 12 || (frame <= 3600 && frame % 120 == 0);
     const DISPENV *display = NativeGpu_GetRenderDispEnv();
     const DRAWENV *draw = NativeGpu_GetRenderDrawEnv();
     const int blank = NativeGpu_GetRenderDisplayBlank();
     const int use_vram_scanout = NativeGpu_FrameUsesVRAMScanout();
+    if (trace)
+        Platform_Log("[diag-v2] end-scene %u blank=%d rgb24=%d scanout=%d display=%d,%d %dx%d clip=%d,%d %dx%d dfe=%d\n",
+            frame, blank, display->isrgb24, use_vram_scanout,
+            display->disp.x, display->disp.y, display->disp.w, display->disp.h,
+            draw->clip.x, draw->clip.y, draw->clip.w, draw->clip.h, draw->dfe);
+
     if (!display->isrgb24 && !use_vram_scanout) {
         // CPU-only PS1 frames have no primitive batch, so draw-page uploads must also be applied here.
         VitaCtrNativeRenderer_ApplyMainCpuVRAMDraw();
@@ -177,6 +217,8 @@ void Platform_EndScene(void)
         NativeRenderer_PresentMainRenderTarget();
     }
     NativeRenderer_SwapWindow();
+    if (trace)
+        Platform_Log("[diag-v2] end-scene %u swap returned gl_error=0x%x\n", frame, (unsigned)glGetError());
 }
 
 void VitaCtrNativeRenderer_PresentCurrentFrame(void)
@@ -755,14 +797,22 @@ int renderer_present_frame(struct psx_gpu *psx_gpu, int src_x, int src_y, int sr
     int display_height;
     const int rgb24 = !!(psx_gpu->status & PSX_GPU_STATUS_RGB24);
 
-    if (!s_context_ready)
+    /* Skipped frames do not advance the submission-attempt counter. */
+    if (!s_context_ready) {
+        if (s_present_debug_count < 8)
+            Platform_Log("PCSX AwO: High Octane present skipped: context not ready\n");
         return 0;
+    }
 
     display_width = psx_gpu->screen.hres > 0 ? psx_gpu->screen.hres : w;
     display_height = psx_gpu->state.screen_centering_type == C_BORDERLESS ? h :
         (psx_gpu->screen.vres > 0 ? psx_gpu->screen.vres : h);
-    if (display_width <= 0 || display_height <= 0 || w <= 0 || h <= 0)
+    if (display_width <= 0 || display_height <= 0 || w <= 0 || h <= 0) {
+        if (s_present_debug_count < 8)
+            Platform_Log("PCSX AwO: High Octane present skipped: invalid dimensions %dx%d -> %dx%d\n",
+                display_width, display_height, w, h);
         return 0;
+    }
 
     if (rgb24) {
         const int source_byte_x = src_byte_offset & 2047;
@@ -806,7 +856,15 @@ int renderer_present_frame(struct psx_gpu *psx_gpu, int src_x, int src_y, int sr
     VitaCtrNativeGpu_SetDisplayEnv(src_x, src_y, display_width, display_height,
         x, y, w, h, rgb24, src_byte_offset);
     NativeGpu_SetFrontendDisplayBlank(0);
-    NativeGpu_SubmitFrontendFrame();
+    {
+        const int submitted = NativeGpu_SubmitFrontendFrame();
+        if (s_present_debug_count < 8) {
+            Platform_Log("PCSX AwO: High Octane present #%u: src=%d,%d display=%dx%d rect=%d,%d %dx%d submitted=%d\n",
+                s_present_debug_count + 1, src_x, src_y, display_width, display_height,
+                x, y, w, h, submitted);
+        }
+        s_present_debug_count++;
+    }
     NativeGpu_BeginFrontendFrame();
     s_frame_started = 1;
     return 1;

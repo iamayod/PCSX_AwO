@@ -100,10 +100,25 @@ static void apply_controller_settings(bool loaded)
 
 static SDL_AudioStream *g_audio_stream;
 static uint32_t g_audio_put_errors;
+/* Keep one append stream for frontend diagnostics during this process. */
+static FILE *g_debug_log;
 
 unsigned int _newlib_heap_size_user = 40 * 1024 * 1024;
 static SceUID g_vm_block = -1;
 extern int _newlib_vm_size_user;
+
+static void debug_log(const char *fmt, ...)
+{
+    va_list ap;
+    if (!g_debug_log)
+        g_debug_log = fopen(PCSX_AWO_APP_ROOT "/renderer.log", "ab");
+    if (!g_debug_log)
+        return;
+    va_start(ap, fmt);
+    vfprintf(g_debug_log, fmt, ap);
+    va_end(ap);
+    fflush(g_debug_log);
+}
 
 int getVMBlock(void)
 {
@@ -435,6 +450,7 @@ static uint32_t front_touch_buttons(void)
 
 static void input_poll_cb(void)
 {
+    static unsigned analog_log_frames;
     const uint32_t pause_mask = SCE_CTRL_SELECT | SCE_CTRL_START;
     memset(&g_pad, 0, sizeof(g_pad));
     if (sceCtrlPeekBufferPositiveExt2(0, &g_pad, 1) < 0)
@@ -442,6 +458,14 @@ static void input_poll_cb(void)
     /* Recomputed each poll: releasing a touch releases its button, while
      * physical/external-controller L2 and R2 remain available. */
     g_pad.buttons |= front_touch_buttons();
+
+    /* Sample once per 60 DualShock polls and stop after 3600 such polls. */
+    if (g_controller_dualshock && analog_log_frames < 3600) {
+        if ((analog_log_frames++ % 60) == 0)
+            debug_log("PCSX AwO: analog input left=%u,%u right=%u,%u requested=%s\n",
+                g_pad.lx, g_pad.ly, g_pad.rx, g_pad.ry,
+                g_controller_analog ? "analog" : "digital");
+    }
 
     /* Remap only the gameplay snapshot; menu input uses its own controller reads. */
     const char *swap = VitaSettings_GetOption("vita_swap_cross_circle");
@@ -719,17 +743,23 @@ int main(int argc, char **argv)
 
     sceClibPrintf("PCSX AwO: main entered\n");
     make_dirs();
+    debug_log("\nPCSX AwO: main entered [diag-v3, packed vertex ABI fixed, PCSX async GPU disabled]\n");
     VitaSettings_Init();
+    debug_log("PCSX AwO: renderer setting=%s\n",
+        VitaSettings_GetOption("vita_renderer"));
     VitaSaveStates_Init();
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);
-    /* Ext2 polling needs extended analog sampling to supply both stick axes. */
-    sceCtrlSetSamplingModeExt(SCE_CTRL_MODE_ANALOG_WIDE);
+    /* Log the SDK result while enabling the extended analog sampling path. */
+    debug_log("PCSX AwO: extended analog sampling result=%d\n",
+        sceCtrlSetSamplingModeExt(SCE_CTRL_MODE_ANALOG_WIDE));
     /* Short-circuit failures: never consume touch reports from an invalid panel. */
     g_front_touch_ready =
         sceTouchGetPanelInfo(SCE_TOUCH_PORT_FRONT, &g_front_touch_panel) >= 0 &&
         g_front_touch_panel.maxDispX > g_front_touch_panel.minDispX &&
         g_front_touch_panel.maxDispY > g_front_touch_panel.minDispY &&
         sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_START) >= 0;
+    debug_log("PCSX AwO: front touch L2/R2 %s\n",
+        g_front_touch_ready ? "enabled" : "unavailable");
 
     ret = display_init();
     if (ret < 0) {
@@ -745,6 +775,7 @@ int main(int argc, char **argv)
         return 1;
     }
     sceClibPrintf("PCSX AwO: video initialized\n");
+    debug_log("PCSX AwO: video initialized\n");
 
     ret = audio_init();
     if (ret < 0)
@@ -761,6 +792,7 @@ int main(int argc, char **argv)
     retro_set_input_state(input_state_cb);
     retro_init();
     sceClibPrintf("PCSX AwO: retro_init complete\n");
+    debug_log("PCSX AwO: retro_init complete\n");
 
     game_path[0] = '\0';
     memset(&boot_disc, 0, sizeof(boot_disc));
@@ -805,16 +837,20 @@ int main(int argc, char **argv)
             break;
         }
         sceClibPrintf("PCSX AwO: booting %s\n", game_path);
+        debug_log("PCSX AwO: booting %s\n", game_path);
         memset(&game, 0, sizeof(game));
         game.path = game_path;
         if (!retro_load_game(&game)) {
             sceClibPrintf("PCSX AwO: retro_load_game failed\n");
+            debug_log("PCSX AwO: retro_load_game failed\n");
             exit_code = 3;
             break;
         }
+        debug_log("PCSX AwO: retro_load_game complete\n");
         /* Loading resets controller types. Select afterward, before retro_run.
          * Subclass matches RETRO_DEVICE_PSE_DUALSHOCK in the libretro core. */
         apply_controller_settings(true);
+        debug_log("PCSX AwO: port 1 controller=%s\n", g_controller_dualshock ? "dualshock" : "standard");
         if (boot_disc.index > 0 &&
             (!g_disk_control.get_image_index ||
              g_disk_control.get_image_index() != boot_disc.index)) {
@@ -936,6 +972,10 @@ int main(int argc, char **argv)
     audio_finish();
     /* Release SDL video after the emulation core has shut its renderer down. */
     SDL_QuitSubSystem(SDL_INIT_VIDEO);
+    debug_log("PCSX AwO: shutting down\n");
+    if (g_debug_log)
+        fclose(g_debug_log);
+    g_debug_log = NULL;
     display_finish();
     if (g_vm_block > 0)
         sceKernelFreeMemBlock(g_vm_block);

@@ -2678,6 +2678,13 @@ internal void SetPSXMaskState(u32 code)
 // Draws all polygons after AggregatePTAG
 internal void NativeGpu_DrawPreparedFrame(GrVertex *vertices, GPUDrawSplit *splits, int vertexCount, int splitCount)
 {
+    /* Sample geometry counts and synchronous mode without logging every batch. */
+    static unsigned diagnostic_batch;
+    const unsigned batch = ++diagnostic_batch;
+    if (batch <= 12 || (batch <= 7200 && batch % 240 == 0)) {
+        Platform_Log("[diag-v2] draw batch=%u vertices=%d splits=%d synchronous=%d\n",
+            batch, vertexCount, splitCount, NativeGpu_IsSynchronousFrame());
+    }
 	extern void VitaCtrNativeRenderer_ApplyMainCpuVRAMDraw(void);
 	if (!NativeGpu_GetRenderDispEnv()->isrgb24 && !NativeGpu_FrameUsesVRAMScanout())
 		VitaCtrNativeRenderer_ApplyMainCpuVRAMDraw();

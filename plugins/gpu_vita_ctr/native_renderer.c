@@ -4024,6 +4024,17 @@ void NativeRenderer_PresentBlank(void)
 }
 void NativeRenderer_PresentMainRenderTarget(void)
 {
+    /* Capture target/viewport state; glGetError also consumes the current error flag. */
+    static unsigned diagnostic_present;
+    const unsigned present = ++diagnostic_present;
+    if (present <= 12 || (present <= 3600 && present % 120 == 0)) {
+        Platform_Log("[diag-v2] main present=%u texture=%u fbo=%u physical=%dx%d logical=%dx%d viewport=%d,%d %dx%d shader=%u gl_error=0x%x\n",
+            present, (unsigned)s_mainRenderTarget.texture, (unsigned)s_mainRenderTarget.framebuffer,
+            s_mainRenderTarget.width, s_mainRenderTarget.height,
+            s_mainRenderTarget.logicalWidth, s_mainRenderTarget.logicalHeight,
+            s_presentViewport.x, s_presentViewport.y, s_presentViewport.w, s_presentViewport.h,
+            (unsigned)s_presentRgbaShader, (unsigned)glGetError());
+    }
 	if ((s_mainRenderTarget.texture == 0) || (s_mainRenderTarget.width <= 0) || (s_mainRenderTarget.height <= 0))
 	{
 		return;
