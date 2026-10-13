@@ -46,3 +46,11 @@ psx_gpu_offsets_update
 /eboot_razor_debug.bin
 /param.sfo
 /sce_sys/param.sfo
+
+# PCSX AwO build outputs and local development artifacts
+/pcsx-awo.elf
+/pcsx-awo.velf
+/pcsx-awo.vpk
+/*-build.log
+/build.log
+/Makefile.libretro.bak
