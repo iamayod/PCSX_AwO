@@ -609,6 +609,17 @@ int padFreeze(void *f, int Mode)
 	return 0;
 }
 
+/* Set the requested mode deterministically instead of toggling an unknown game-selected mode. */
+int padSetAnalog(unsigned int index, int analog)
+{
+	if (index >= sizeof(g.pads) / sizeof(g.pads[0]))
+		return -1;
+	/* Normalize callers to the one-bit protocol mode and mark a user-initiated change. */
+	g.pads[index].ds.padMode = !!analog;
+	g.pads[index].ds.userToggled = 1;
+	return g.pads[index].ds.padMode;
+}
+
 int padToggleAnalog(unsigned int index)
 {
 	int r = -1;

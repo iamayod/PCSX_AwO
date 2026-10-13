@@ -66,6 +66,32 @@ static bool g_pause_requested;
 static bool g_pause_combo_down;
 static struct retro_disk_control_ext_callback g_disk_control;
 extern int VitaGpu_PresentNeonFrame(const void *data, int width, int height, int pitch);
+/* The standalone frontend links this exported core entry point directly. */
+extern int padSetAnalog(unsigned int index, int analog);
+/* Remember the active device; editing the menu does not hot-plug a controller. */
+static bool g_controller_dualshock;
+/* Remember the requested mode so unchanged menu visits preserve game-selected modes. */
+static bool g_controller_analog;
+
+static void apply_controller_settings(bool loaded)
+{
+    /* Read the persisted port-1 device and the user-requested analog mode. */
+    const char *controller = VitaSettings_GetOption("vita_controller");
+    const char *mode = VitaSettings_GetOption("vita_controller_mode");
+    bool dualshock = controller && strcmp(controller, "dualshock") == 0;
+    bool analog = mode && strcmp(mode, "analog") == 0;
+    /* Controller changes require a restart; mode changes apply on resume.
+     * Do not override game-selected modes on every frame or menu visit. */
+    if (loaded) {
+        g_controller_dualshock = dualshock;
+        retro_set_controller_port_device(0, dualshock ?
+            RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 1) : RETRO_DEVICE_JOYPAD);
+    }
+    if (g_controller_dualshock && (loaded || analog != g_controller_analog))
+        padSetAnalog(0, analog);
+    /* Cache the request even for a digital pad; a restart reapplies it to DualShock. */
+    g_controller_analog = analog;
+}
 
 static SDL_AudioStream *g_audio_stream;
 static uint32_t g_audio_put_errors;
@@ -649,6 +675,8 @@ int main(int argc, char **argv)
     VitaSettings_Init();
     VitaSaveStates_Init();
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);
+    /* Ext2 polling needs extended analog sampling to supply both stick axes. */
+    sceCtrlSetSamplingModeExt(SCE_CTRL_MODE_ANALOG_WIDE);
 
     ret = display_init();
     if (ret < 0) {
@@ -731,6 +759,9 @@ int main(int argc, char **argv)
             exit_code = 3;
             break;
         }
+        /* Loading resets controller types. Select afterward, before retro_run.
+         * Subclass matches RETRO_DEVICE_PSE_DUALSHOCK in the libretro core. */
+        apply_controller_settings(true);
         if (boot_disc.index > 0 &&
             (!g_disk_control.get_image_index ||
              g_disk_control.get_image_index() != boot_disc.index)) {
@@ -800,6 +831,8 @@ int main(int argc, char **argv)
             }
 
             if (ret == VITA_PAUSE_RESUME) {
+                /* Apply a changed mode on resume without changing the active device. */
+                apply_controller_settings(false);
                 audio_set_paused(false);
                 continue;
             }
@@ -818,6 +851,8 @@ int main(int argc, char **argv)
                     g_exit_requested = true;
                     break;
                 }
+                /* Reloading resets pad state, so restore the selected device and mode. */
+                apply_controller_settings(true);
                 game_loaded = true;
                 g_pause_requested = false;
                 g_pause_combo_down = false;

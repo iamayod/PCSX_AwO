@@ -349,6 +349,8 @@ else ifeq ($(platform), vita)
 	NDRC_THREAD := 0 # can't write to tc from thread
 	HAVE_PHYSICAL_CDROM = 0
 		EXTRA_EXTERN_SYMS += _newlib_vm_size_user VitaCtrNativeRenderer_PresentCurrentFrame VitaCtrNativeRenderer_SetAspectMode NativeRenderer_SwapWindow VitaGpu_PresentNeonFrame
+	# Keep the menu-controlled analog setter visible to the standalone executable.
+	EXTRA_EXTERN_SYMS += padSetAnalog
 	LIBPTHREAD :=
 
 # CTR(3DS)

@@ -135,6 +135,8 @@ unsigned char PAD2_poll(unsigned char, int *);
 
 int padFreeze(void *f, int Mode);
 int padToggleAnalog(unsigned int index);
+/* Explicit mode setter for the Vita menu; returns -1 for an invalid port. */
+int padSetAnalog(unsigned int index, int analog);
 void padReset(void);
 void padChanged(void);
 
