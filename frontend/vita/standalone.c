@@ -8,6 +8,7 @@
 
 #include <psp2/appmgr.h>
 #include <psp2/ctrl.h>
+#include <psp2/touch.h>
 #include <psp2/display.h>
 #include <psp2/io/dirent.h>
 #include <psp2/io/fcntl.h>
@@ -61,6 +62,10 @@ static uint32_t g_rgb565_lut[65536];
 static bool g_rgb565_lut_ready;
 
 static SceCtrlData g_pad;
+/* Cache the panel bounds so touch coordinates do not assume a fixed resolution. */
+static SceTouchPanelInfo g_front_touch_panel;
+/* Ignore touchscreen input unless panel discovery and sampling both succeeded. */
+static bool g_front_touch_ready;
 static bool g_exit_requested;
 static bool g_pause_requested;
 static bool g_pause_combo_down;
@@ -402,12 +407,42 @@ static size_t audio_batch_cb(const int16_t *data, size_t frames)
     return frames;
 }
 
+static uint32_t front_touch_buttons(void)
+{
+    SceTouchData touch;
+    uint32_t buttons = 0;
+    if (!g_front_touch_ready ||
+        sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch, 1) <= 0)
+        return 0;
+
+    /* Panel maxima are inclusive; normalize all contacts to this rectangle. */
+    const int width = g_front_touch_panel.maxDispX - g_front_touch_panel.minDispX + 1;
+    const int height = g_front_touch_panel.maxDispY - g_front_touch_panel.minDispY + 1;
+    /* Combine simultaneous contacts while respecting the fixed report capacity. */
+    for (unsigned i = 0; i < touch.reportNum && i < SCE_TOUCH_MAX_REPORT; ++i) {
+        const int x = touch.report[i].x - g_front_touch_panel.minDispX;
+        const int y = touch.report[i].y - g_front_touch_panel.minDispY;
+        /* Outer thirds of the bottom third; center and upper area are inert. */
+        if (x < 0 || x >= width || y < (height * 2) / 3 || y >= height)
+            continue;
+        if (x < width / 3)
+            buttons |= SCE_CTRL_L2;
+        else if (x >= (width * 2) / 3)
+            buttons |= SCE_CTRL_R2;
+    }
+    return buttons;
+}
+
 static void input_poll_cb(void)
 {
     const uint32_t pause_mask = SCE_CTRL_SELECT | SCE_CTRL_START;
     memset(&g_pad, 0, sizeof(g_pad));
     if (sceCtrlPeekBufferPositiveExt2(0, &g_pad, 1) < 0)
         sceCtrlPeekBufferPositive(0, &g_pad, 1);
+    /* Recomputed each poll: releasing a touch releases its button, while
+     * physical/external-controller L2 and R2 remain available. */
+    g_pad.buttons |= front_touch_buttons();
+
     /* Remap only the gameplay snapshot; menu input uses its own controller reads. */
     const char *swap = VitaSettings_GetOption("vita_swap_cross_circle");
     if (swap && strcmp(swap, "enabled") == 0) {
@@ -689,6 +724,12 @@ int main(int argc, char **argv)
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);
     /* Ext2 polling needs extended analog sampling to supply both stick axes. */
     sceCtrlSetSamplingModeExt(SCE_CTRL_MODE_ANALOG_WIDE);
+    /* Short-circuit failures: never consume touch reports from an invalid panel. */
+    g_front_touch_ready =
+        sceTouchGetPanelInfo(SCE_TOUCH_PORT_FRONT, &g_front_touch_panel) >= 0 &&
+        g_front_touch_panel.maxDispX > g_front_touch_panel.minDispX &&
+        g_front_touch_panel.maxDispY > g_front_touch_panel.minDispY &&
+        sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_START) >= 0;
 
     ret = display_init();
     if (ret < 0) {
