@@ -42,8 +42,9 @@ POSTFX_GXP := $(foreach name,$(POSTFX_NAMES),$(BUILD_DIR)/postfx/$(name)/vert.gx
 LIVEAREA_PATHS := icon0.png pic0.png livearea/contents/bg.png livearea/contents/startup.png livearea/contents/template.xml
 LIVEAREA_ASSETS := $(addprefix assets/livearea/sce_sys/,$(LIVEAREA_PATHS))
 LIVEAREA_VPK := $(foreach file,$(LIVEAREA_PATHS),-a assets/livearea/sce_sys/$(file)=sce_sys/$(file))
+# Keep GPU submission on the calling thread for the Vita renderer.
 CORE_ARGS := platform=vita GIT_VERSION=$(GIT_VERSION) USE_LIBRETRO_VFS=0 \
-		USE_ASYNC_CDROM=1 USE_ASYNC_GPU=1 USE_ASYNC_SPU=0 VITAGL_DIR=$(VITAGL_DIR)
+		USE_ASYNC_CDROM=1 USE_ASYNC_GPU=0 USE_ASYNC_SPU=0 VITAGL_DIR=$(VITAGL_DIR)
 
 # Forward the same header source to the recursive core build.
 CORE_ARGS += CTR_NATIVE_DIR=$(CTR_NATIVE_DIR)

@@ -16,6 +16,8 @@
 #include "platform/native_gpu.h"
 #include "platform/native_gpu_links.h"
 #include "platform/native_renderer.h"
+/* Reject the CTR/PGXP layout: PS1 vertex attributes require a packed 22-byte stride. */
+_Static_assert(sizeof(GrVertex) == 22, "PCSX requires its compatibility vertex header");
 
 #ifdef force_inline
 #undef force_inline

@@ -657,6 +657,14 @@ int main(int argc, char **argv)
     }
     sceClibPrintf("PCSX AwO: display initialized\n");
 
+    /* Initialize SDL video before the renderer creates its window/context. */
+    if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
+        sceClibPrintf("PCSX AwO: SDL video init failed: %s\n", SDL_GetError());
+        display_finish();
+        return 1;
+    }
+    sceClibPrintf("PCSX AwO: video initialized\n");
+
     ret = audio_init();
     if (ret < 0)
         sceClibPrintf("PCSX AwO: audio init failed 0x%x; continuing silent\n", ret);
@@ -838,6 +846,8 @@ int main(int argc, char **argv)
 
     retro_deinit();
     audio_finish();
+    /* Release SDL video after the emulation core has shut its renderer down. */
+    SDL_QuitSubSystem(SDL_INIT_VIDEO);
     display_finish();
     if (g_vm_block > 0)
         sceKernelFreeMemBlock(g_vm_block);

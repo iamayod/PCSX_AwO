@@ -3,6 +3,8 @@
 #include <SDL3/SDL.h>
 #include <macros.h>
 #include "platform/native_renderer_types.h"
+/* Reject the CTR/PGXP layout: PS1 vertex attributes require a packed 22-byte stride. */
+_Static_assert(sizeof(GrVertex) == 22, "PCSX requires its compatibility vertex header");
 #include "namespace_Gamepad.h"
 
 #ifndef NATIVE_GHOST_OVERLAY_TOUCH_FRONT_LEFT

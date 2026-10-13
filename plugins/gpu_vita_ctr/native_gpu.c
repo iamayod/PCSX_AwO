@@ -8,6 +8,8 @@
 
 #include "platform/native_log.h"
 #include "platform/native_renderer.h"
+/* Reject the CTR/PGXP layout: PS1 vertex attributes require a packed 22-byte stride. */
+_Static_assert(sizeof(GrVertex) == 22, "PCSX GPU must emit packed PS1 vertices");
 
 #include <assert.h>
 #include <stdbool.h>
