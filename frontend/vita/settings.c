@@ -18,6 +18,8 @@ static VitaOptionEntry g_options[] = {
     /* Preserve digital compatibility by default; analog is the initial DualShock mode. */
     { "vita_controller", "standard", {0} },
     { "vita_controller_mode", "analog", {0} },
+    /* Leave face-button mapping unchanged until the player explicitly opts in. */
+    { "vita_swap_cross_circle", "disabled", {0} },
     { "pcsx_rearmed_memcard1", "shared", {0} },
     { "pcsx_rearmed_memcard2", "none", {0} },
     { "pcsx_rearmed_bios", "auto", {0} },
